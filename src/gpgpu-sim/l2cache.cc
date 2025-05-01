@@ -543,57 +543,80 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
       bool output_full = m_L2_icnt_queue->full();
       bool port_free = m_L2cache->data_port_free();
       if (!output_full && port_free) {
-        std::list<cache_event> events;
-        enum cache_request_status status =
-            m_L2cache->access(mf->get_addr(), mf,
-                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
-                                  m_memcpy_cycle_offset,
-                              events);
-        bool write_sent = was_write_sent(events);
-        bool read_sent = was_read_sent(events);
-        MEM_SUBPART_DPRINTF("Probing L2 cache Address=%llx, status=%u\n",
-                            mf->get_addr(), status);
 
-        if (status == HIT) {
-          if (!write_sent) {
-            // L2 cache replies
-            assert(!read_sent);
-            if (mf->get_access_type() == L1_WRBK_ACC) {
-              m_request_tracker.erase(mf);
-              delete mf;
+
+        bool flag = true;
+        if (mf->get_addr() >= 0x207a3e000 && mf->get_addr() <= 0x207bc5e00) {
+          flag = false;
+        }
+        if (flag){
+          printf("execute [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
+          std::list<cache_event> events;
+          enum cache_request_status status =
+              m_L2cache->access(mf->get_addr(), mf,
+                                m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
+                                    m_memcpy_cycle_offset,
+                                events);
+          bool write_sent = was_write_sent(events);
+          bool read_sent = was_read_sent(events);
+          MEM_SUBPART_DPRINTF("Probing L2 cache Address=%llx, status=%u\n",
+                              mf->get_addr(), status);
+
+          if (status == HIT) {
+            if (!write_sent) {
+              // L2 cache replies
+              assert(!read_sent);
+              if (mf->get_access_type() == L1_WRBK_ACC) {
+                m_request_tracker.erase(mf);
+                delete mf;
+              } else {
+                mf->set_reply();
+                mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
+                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+                m_L2_icnt_queue->push(mf);
+              }
+              m_icnt_L2_queue->pop();
             } else {
-              mf->set_reply();
-              mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
-                             m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-              m_L2_icnt_queue->push(mf);
+              assert(write_sent);
+              m_icnt_L2_queue->pop();
             }
+          } else if (status != RESERVATION_FAIL) {
+            if (mf->is_write() &&
+                (m_config->m_L2_config.m_write_alloc_policy == FETCH_ON_WRITE ||
+                m_config->m_L2_config.m_write_alloc_policy ==
+                    LAZY_FETCH_ON_READ) &&
+                !was_writeallocate_sent(events)) {
+              if (mf->get_access_type() == L1_WRBK_ACC) {
+                m_request_tracker.erase(mf);
+                delete mf;
+              } else if (m_config->m_L2_config.get_write_policy() == WRITE_BACK) {
+                mf->set_reply();
+                mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
+                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+                m_L2_icnt_queue->push(mf);
+              }
+            }
+            // L2 cache accepted request
             m_icnt_L2_queue->pop();
           } else {
-            assert(write_sent);
-            m_icnt_L2_queue->pop();
+            assert(!write_sent);
+            assert(!read_sent);
+            // L2 cache lock-up: will try again next cycle
           }
-        } else if (status != RESERVATION_FAIL) {
-          if (mf->is_write() &&
-              (m_config->m_L2_config.m_write_alloc_policy == FETCH_ON_WRITE ||
-               m_config->m_L2_config.m_write_alloc_policy ==
-                   LAZY_FETCH_ON_READ) &&
-              !was_writeallocate_sent(events)) {
-            if (mf->get_access_type() == L1_WRBK_ACC) {
-              m_request_tracker.erase(mf);
-              delete mf;
-            } else if (m_config->m_L2_config.get_write_policy() == WRITE_BACK) {
-              mf->set_reply();
-              mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
-                             m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-              m_L2_icnt_queue->push(mf);
-            }
+        }
+        else
+        {
+          printf("PASS [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
+          if (mf->get_access_type() == L1_WRBK_ACC) {
+            m_request_tracker.erase(mf);
+            delete mf;
+          } else {
+            mf->set_reply();
+            mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
+                          m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+            m_L2_icnt_queue->push(mf);
           }
-          // L2 cache accepted request
           m_icnt_L2_queue->pop();
-        } else {
-          assert(!write_sent);
-          assert(!read_sent);
-          // L2 cache lock-up: will try again next cycle
         }
       }
     } else {
