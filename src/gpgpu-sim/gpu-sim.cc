@@ -1089,7 +1089,7 @@ void gpgpu_sim::reinit_clock_domains(void) {
   l2_time = 0;
 }
 
-bool gpgpu_sim::active() {
+bool gpgpu_sim::active(bool flag) {
   if (m_config.gpu_max_cycle_opt &&
       (gpu_tot_sim_cycle + gpu_sim_cycle) >= m_config.gpu_max_cycle_opt)
     return false;
@@ -1109,7 +1109,7 @@ bool gpgpu_sim::active() {
   for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
     if (m_memory_partition_unit[i]->busy() > 0) return true;
   ;
-  if(m_config.gpgpu_include_dram_cycle)
+  if(m_config.gpgpu_include_dram_cycle && flag == 1)
   {
   for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
     if (m_memory_partition_unit[i]->dram_is_busy() > 0) return true;
@@ -2178,9 +2178,9 @@ void gpgpu_sim::l2_flush_cycle(){
     unsigned finished_kernel_uid = 0;
     unsigned _active = 0;
     do {
-      if (!active()) break;
+      if (!active(true)) break;
       // performance simulation
-      if (active()) {
+      if (active(true)) {
         cycle();
         deadlock_check();
       } else {
@@ -2190,10 +2190,11 @@ void gpgpu_sim::l2_flush_cycle(){
           break;
         }
       }
-      _active = active();
+      _active = active(true);
       finished_kernel_uid = finished_kernel();
     } while (_active && !finished_kernel_uid);
   }
+}
 }
 
 

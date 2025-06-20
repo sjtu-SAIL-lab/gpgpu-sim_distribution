@@ -2131,7 +2131,7 @@ void ldst_unit::L1_latency_queue_cycle() {
         flag =false;
       }
       if (flag){
-        printf("execute [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
+        // printf("execute [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
         std::list<cache_event> events;
         enum cache_request_status status =
             m_L1D->access(mf_next->get_addr(), mf_next,
@@ -2214,7 +2214,7 @@ void ldst_unit::L1_latency_queue_cycle() {
         }
       }
       else{
-        printf("PASS [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
+        // printf("PASS [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
         bool write_sent = false;
         bool read_sent = false;
         l1_latency_queue[j][0] = NULL;

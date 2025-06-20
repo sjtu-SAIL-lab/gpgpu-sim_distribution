@@ -532,7 +532,7 @@ class gpgpu_sim : public gpgpu_t {
   void init();
   void cycle();
   void l2_flush_cycle();
-  bool active();
+  bool active(bool flag  = false);
   bool cycle_insn_cta_max_hit() {
     return (m_config.gpu_max_cycle_opt && (gpu_tot_sim_cycle + gpu_sim_cycle) >=
                                               m_config.gpu_max_cycle_opt) ||

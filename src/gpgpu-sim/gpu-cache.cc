@@ -1821,6 +1821,9 @@ enum cache_request_status data_cache::access(new_addr_type addr, mem_fetch *mf,
   unsigned cache_index = (unsigned)-1;
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, mf->is_write(), true);
+  // if (addr >= 0x20dd34000 && addr <= 0x20dd95e00 && mf->get_inst().op == 11) {
+  //       probe_status = HIT;
+  //     }
   enum cache_request_status access_status =
       process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
   m_stats.inc_stats(mf->get_access_type(),
@@ -2073,8 +2076,8 @@ void data_cache::flushL2(unsigned time,std::list<cache_event> &events) {
   for (unsigned i = 0; i < m_config.get_num_lines(); i++)
   {
     cache_block_t * this_line = m_tag_array->get_block(i);
-    if (this_line->is_modified_line()) {
-
+    // if (this_line->is_modified_line() && ( ( this_line->m_tag >= m_config.tag(0x22514e000)   && this_line->m_tag <= m_config.tag(0x2251977e0)) || (this_line->m_tag >= m_config.tag(0x225197800)   && this_line->m_tag <= m_config.tag(0x2251e0f8))) ) {
+    if (this_line->is_modified_line() ) {
       
       evicted_block_info evicted;
 

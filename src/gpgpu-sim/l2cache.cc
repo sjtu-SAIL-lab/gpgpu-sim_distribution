@@ -550,7 +550,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
           flag = false;
         }
         if (flag){
-          printf("execute [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
+          // printf("execute [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
           std::list<cache_event> events;
           enum cache_request_status status =
               m_L2cache->access(mf->get_addr(), mf,
@@ -606,7 +606,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
         }
         else
         {
-          printf("PASS [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
+          // printf("PASS [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
           if (mf->get_access_type() == L1_WRBK_ACC) {
             m_request_tracker.erase(mf);
             delete mf;
