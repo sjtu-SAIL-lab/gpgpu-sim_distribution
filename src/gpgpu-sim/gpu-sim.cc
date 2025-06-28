@@ -2195,7 +2195,6 @@ void gpgpu_sim::l2_flush_cycle(){
     } while (_active && !finished_kernel_uid);
   }
 }
-}
 
 
 void shader_core_ctx::dump_warp_state(FILE *fout) const {
