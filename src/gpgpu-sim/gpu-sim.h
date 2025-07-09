@@ -571,6 +571,11 @@ class gpgpu_sim : public gpgpu_t {
   PowerscalingCoefficients *get_scaling_coeffs();
   void decrement_kernel_latency();
 
+  void set_DLA_input(std::map<uint64_t, uint64_t> &input, std::map<uint64_t, int> &input_complete) {
+    DLA_input = input;
+    DLA_input_complete = input_complete;  // for jetson
+  }
+
   const gpgpu_sim_config &get_config() const { return m_config; }
   void gpu_print_stat();
   void dump_pipeline(int mask, int s, int m) const;
@@ -646,7 +651,7 @@ class gpgpu_sim : public gpgpu_t {
   double icnt_time;
   double dram_time;
   double l2_time;
-
+  
   // debug
   bool gpu_deadlock;
 
@@ -701,6 +706,8 @@ class gpgpu_sim : public gpgpu_t {
   unsigned long long partiton_replys_in_parallel;
   unsigned long long partiton_replys_in_parallel_total;
 
+  std::map<uint64_t, uint64_t> DLA_input;  // for jetson
+  std::map<uint64_t, int> DLA_input_complete;  // for jetson
   FuncCache get_cache_config(std::string kernel_name);
   void set_cache_config(std::string kernel_name, FuncCache cacheConfig);
   bool has_special_cache_config(std::string kernel_name);

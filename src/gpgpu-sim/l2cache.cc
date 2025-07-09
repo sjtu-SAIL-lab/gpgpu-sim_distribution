@@ -477,10 +477,49 @@ memory_sub_partition::~memory_sub_partition() {
 }
 
 void memory_sub_partition::cache_cycle(unsigned cycle) {
+
+  uint64_t current_cycle = m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle + m_memcpy_cycle_offset;
+
+  for (auto it = m_gpu->DLA_input.begin(); it != m_gpu->DLA_input.end(); ++it) {
+      // 检查是否未处理（complete为false）且是需要处理的cycle范围
+      bool need_process = ( it->second <= current_cycle &&  m_gpu->DLA_input_complete[it->first] < 4);
+
+
+      if (need_process) {
+          auto next_it = std::next(it);
+          uint64_t next_addr = (next_it != m_gpu->DLA_input.end()) ? 
+                              next_it->first : it->first + 0x100;
+
+          // printf("[DLA] Processing address: 0x%lx at cycle: %lu\n",
+          //       it->first, current_cycle);
+          
+          // if(current_cycle == 25280)
+          // {
+          //   volatile int x = 1;
+          // }
+          // 打印调试信息（如果是最后一个元素）
+          if (next_it == m_gpu->DLA_input.end()) {
+              printf("[DLA] End of input map - cycle:%lu last_addr:0x%lx\n",
+                    current_cycle, it->first);
+          }
+
+          // 处理请求
+          m_L2cache->mshr_process(it->first, next_addr);
+          
+          // 标记为已处理
+          m_gpu->DLA_input_complete[it->first] += 1;
+
+
+      }
+  }
+
   // L2 fill responses
   if (!m_config->m_L2_config.disabled()) {
     if (m_L2cache->access_ready() && !m_L2_icnt_queue->full()) {
       mem_fetch *mf = m_L2cache->next_access();
+
+      // printf("L2 cache access ready for address: 0x%lx in cycle:%lu\n",
+      //         mf->get_addr(),current_cycle);
       if (mf->get_access_type() !=
           L2_WR_ALLOC_R) {  // Don't pass write allocate read request back to
                             // upper level cache
@@ -533,22 +572,44 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
   // prior L2 misses inserted into m_L2_dram_queue here
   if (!m_config->m_L2_config.disabled()) m_L2cache->cycle();
 
+
+
   // new L2 texture accesses and/or non-texture accesses
   if (!m_L2_dram_queue->full() && !m_icnt_L2_queue->empty()) {
     mem_fetch *mf = m_icnt_L2_queue->top();
-    if (!m_config->m_L2_config.disabled() &&
-        ((m_config->m_L2_texure_only && mf->istexture()) ||
-         (!m_config->m_L2_texure_only))) {
-      // L2 is enabled and access is for L2
-      bool output_full = m_L2_icnt_queue->full();
-      bool port_free = m_L2cache->data_port_free();
-      if (!output_full && port_free) {
-
-
-        bool flag = true;
-        if (mf->get_addr() >= 0x207a3e000 && mf->get_addr() <= 0x207bc5e00) {
-          flag = false;
-        }
+      if (!m_config->m_L2_config.disabled() &&
+          ((m_config->m_L2_texure_only && mf->istexture()) ||
+           (!m_config->m_L2_texure_only))) {
+        // L2 is enabled and access is for L2
+        bool output_full = m_L2_icnt_queue->full();
+        bool port_free = m_L2cache->data_port_free();
+        if (!output_full && port_free) {
+          bool flag = true;
+          if (mf->get_addr() >=     0x20cec1800   && mf->get_addr() <  0x20ceccfc0) {
+            // printf("Processing address: 0x%lx in cycle: %lu\n",
+            //         mf->get_addr(), current_cycle);
+           auto it = m_gpu->DLA_input.lower_bound(mf->get_addr());
+           auto prev_it = std::prev(it);
+           
+            if (it != m_gpu->DLA_input.begin()) {
+            // printf(
+            //         "Found matching map entry - Key: 0x%lx, Current cycle: %lu, Threshold cycle: %lu\n",
+            //         prev_it->first, current_cycle, prev_it->second);  // 打印map中找到的键和值
+            
+            if (prev_it->second > current_cycle) {
+              // printf("Condition miss - keeping flag as i\n"); 
+            } else {
+              // printf("Condition hit  - setting flag to false\n");
+              flag = false;  // Set flag to false if no previous entry exists
+            }
+           } else {
+            // printf(
+            //         "No previous map entry found for address: 0x%lx- setting flag to false\n",
+            //         mf->get_addr());  // 打印未找到前一个条目的情况
+            flag = false;  // Set flag to false if no previous entry exists
+           }
+      }
+      // flag = true;
         if (flag){
           // printf("execute [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
           std::list<cache_event> events;
@@ -561,7 +622,8 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
           bool read_sent = was_read_sent(events);
           MEM_SUBPART_DPRINTF("Probing L2 cache Address=%llx, status=%u\n",
                               mf->get_addr(), status);
-
+          // printf("Probing L2 cache Address=%lx, status=%u\n",
+          //                     mf->get_addr(), status);
           if (status == HIT) {
             if (!write_sent) {
               // L2 cache replies
@@ -626,7 +688,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
       m_L2_dram_queue->push(mf);
       m_icnt_L2_queue->pop();
     }
-  }
+    }
 
   // ROP delay queue
   if (!m_rop.empty() && (cycle >= m_rop.front().ready_cycle) &&
@@ -634,8 +696,18 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
     mem_fetch *mf = m_rop.front().req;
     m_rop.pop();
     m_icnt_L2_queue->push(mf);
+      // printf(
+      //     "Pushing request with address: 0x%lx into m_icnt_L2_queue in cycle: "
+      //     "%lu \n",
+      //     mf->get_addr(), m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
     mf->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
                    m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+  } else if (!m_rop.empty() && (cycle >= m_rop.front().ready_cycle) && m_icnt_L2_queue->full()) {
+    // printf(
+    //     "Cannot push request with address: 0x%lx into m_icnt_L2_queue (queue "
+    //     "full) in cycle: %lu\n",
+    //     m_rop.front().req->get_addr(),
+    //     m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
   }
 }
 
@@ -845,7 +917,9 @@ void memory_sub_partition::push(mem_fetch *m_req, unsigned long long cycle) {
 
     for (unsigned i = 0; i < reqs.size(); ++i) {
       mem_fetch *req = reqs[i];
+
       m_request_tracker.insert(req);
+
       if (req->istexture()) {
         m_icnt_L2_queue->push(req);
         req->set_status(IN_PARTITION_ICNT_TO_L2_QUEUE,
@@ -865,6 +939,11 @@ void memory_sub_partition::push(mem_fetch *m_req, unsigned long long cycle) {
 mem_fetch *memory_sub_partition::pop() {
   mem_fetch *mf = m_L2_icnt_queue->pop();
   m_request_tracker.erase(mf);
+  // if(mf)
+  // {
+  //   printf("Poping request with address: 0x%lx in cycle: %lu \n",
+  //           mf->get_addr(), m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+  // }
   if (mf && mf->isatomic()) mf->do_atomic();
   if (mf && (mf->get_access_type() == L2_WRBK_ACC ||
              mf->get_access_type() == L1_WRBK_ACC)) {

@@ -1098,6 +1098,29 @@ void baseline_cache::cycle() {
   m_bandwidth_management.replenish_port_bandwidth();
 }
 
+void l2_cache::cycle() {
+  if (!m_miss_queue.empty()) {
+    mem_fetch *mf = m_miss_queue.front();
+    if (!m_memport->full(mf->size(), mf->get_is_write())) {
+      m_miss_queue.pop_front();
+      if (!(mf->get_addr() >=  0x20cf40c00  && mf->get_addr() < 0x20ceccfc0 )) {
+        m_memport->push(mf);
+      }
+      
+    }
+  }
+  bool data_port_busy = !m_bandwidth_management.data_port_free();
+  bool fill_port_busy = !m_bandwidth_management.fill_port_free();
+  m_stats.sample_cache_port_utility(data_port_busy, fill_port_busy);
+  m_bandwidth_management.replenish_port_bandwidth();
+  
+}
+
+
+
+
+
+
 /// Interface for response from lower memory level (model bandwidth restictions
 /// in caller)
 void baseline_cache::fill(mem_fetch *mf, unsigned time) {
@@ -1193,6 +1216,9 @@ void baseline_cache::send_read_request(new_addr_type addr,
   new_addr_type mshr_addr = m_config.mshr_addr(mf->get_addr());
   bool mshr_hit = m_mshrs.probe(mshr_addr);
   bool mshr_avail = !m_mshrs.full(mshr_addr);
+  // printf("send_read_request: addr=0x%lx, mshr_addr=0x%lx, mshr_hit=%d, "
+  //        "mshr_avail=%d, read_only=%d, wa=%d\n", addr, mshr_addr, mshr_hit,
+  //        mshr_avail, read_only, wa);
   if (mshr_hit && mshr_avail) {
     if (read_only)
       m_tag_array->access(block_addr, time, cache_index, original_prefetch_mf);
@@ -1200,6 +1226,7 @@ void baseline_cache::send_read_request(new_addr_type addr,
       m_tag_array->access(block_addr, time, cache_index, wb, evicted, original_prefetch_mf);
 
     m_mshrs.add(mshr_addr, mf);
+    // printf("m_mshrs.add: addr=0x%lx, mshr_addr=0x%lx, mf=%p\n", mf->get_addr(), mshr_addr, mf);
     m_stats.inc_stats(mf->get_access_type(), MSHR_HIT);
     do_miss = true;
 
@@ -1211,6 +1238,7 @@ void baseline_cache::send_read_request(new_addr_type addr,
       m_tag_array->access(block_addr, time, cache_index, wb, evicted, original_prefetch_mf);
 
     m_mshrs.add(mshr_addr, mf);
+    // printf("m_mshrs.add: addr=0x%lx, mshr_addr=0x%lx, mf=%p\n", mf->get_addr(), mshr_addr, mf);
     m_extra_mf_fields[mf] = extra_mf_fields(
         mshr_addr, mf->get_addr(), cache_index, mf->get_data_size(), m_config);
     if (original_prefetch_mf == mf) {
@@ -1669,6 +1697,8 @@ enum cache_request_status data_cache::rd_miss_base(
   if (miss_queue_full(1)) {
     // cannot handle request this cycle
     // (might need to generate two requests)
+    // printf("Cache %s: rd_miss_base: miss queue full, cannot handle request\n",
+    //        m_name.c_str());
     m_stats.inc_fail_stats(mf->get_access_type(), MISS_QUEUE_FULL);
     return RESERVATION_FAIL;
   }
@@ -1821,11 +1851,16 @@ enum cache_request_status data_cache::access(new_addr_type addr, mem_fetch *mf,
   unsigned cache_index = (unsigned)-1;
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, mf->is_write(), true);
-  // if (addr >= 0x20dd34000 && addr <= 0x20dd95e00 && mf->get_inst().op == 11) {
-  //       probe_status = HIT;
-  //     }
+  // printf("data_cache::probe: addr=0x%lx, block_addr=0x%lx, cache_index=%u, probe_status=%s\n",
+  //        addr, block_addr, cache_index,
+  //        cache_request_status_str(probe_status));
+         
   enum cache_request_status access_status =
       process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
+
+  // printf("data_cache::access: addr=0x%lx, block_addr=0x%lx, cache_index=%u, access_status=%s\n",
+  //        addr, block_addr, cache_index,
+  //        cache_request_status_str(access_status));
   m_stats.inc_stats(mf->get_access_type(),
                     m_stats.select_stats_status(probe_status, access_status));
   m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
@@ -1921,6 +1956,63 @@ void l2_cache::fill(mem_fetch *mf, unsigned time) {
   }
   m_extra_mf_fields.erase(mf);
   m_bandwidth_management.use_fill_port(mf);
+}
+
+
+void l2_cache::mshr_process(uint64_t first_addr, uint64_t second_addr)
+{
+
+    
+    // 获取地址范围内的所有mf
+    for (auto it = m_extra_mf_fields.begin(); it != m_extra_mf_fields.end(); ) {
+        uint64_t mf_addr = it->second.m_addr;
+        
+        // 检查地址是否在范围内
+        if (mf_addr >= first_addr && mf_addr <= second_addr) {
+            extra_mf_fields_lookup::iterator e = it++;
+            
+            
+            // 设置mf的数据大小和地址
+            mem_fetch* mf = e->first;
+            mf->set_data_size(e->second.m_data_size);
+            mf->set_addr(e->second.m_addr);
+            
+            // 根据分配策略处理缓存填充
+            if (m_config.m_alloc_policy == ON_MISS) {
+                m_tag_array->fill(e->second.m_cache_index, m_gpu->gpu_sim_cycle, mf);
+            } 
+            else if (m_config.m_alloc_policy == ON_FILL) {
+                m_tag_array->fill(e->second.m_block_addr, m_gpu->gpu_sim_cycle, mf, mf->is_write());
+            } 
+            else {
+                abort();
+            }
+            
+            // 标记为ready并处理原子操作
+            bool has_atomic = false;
+            m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
+
+            // printf("mshr_mark_ready: mf->get_addr() = 0x%lx, cycle = %lu\n", mf->get_addr(), m_gpu->gpu_sim_cycle);
+
+            
+            if (has_atomic) {
+                assert(m_config.m_alloc_policy == ON_MISS);
+                cache_block_t* block = m_tag_array->get_block(e->second.m_cache_index);
+                if (!block->is_modified_line()) {
+                    m_tag_array->inc_dirty();
+                }
+                block->set_status(MODIFIED, mf->get_access_sector_mask());
+                block->set_byte_mask(mf);
+            }
+            
+            // 使用填充端口并移除mf
+            m_bandwidth_management.use_fill_port(mf);
+            m_extra_mf_fields.erase(e);
+        } 
+        else {
+            ++it;
+        }
+    }
 }
 
 /// Access function for tex_cache

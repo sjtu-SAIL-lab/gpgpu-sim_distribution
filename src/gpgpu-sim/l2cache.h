@@ -213,6 +213,7 @@ class memory_sub_partition {
   {
     return m_L2cache->isempty();
   }
+  std::set<mem_fetch *> get_request_tracker() { return m_request_tracker; }
 
  private:
   // data

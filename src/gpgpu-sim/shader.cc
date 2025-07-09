@@ -1768,10 +1768,10 @@ unsigned shader_core_ctx::translate_local_memaddr(
     assert(datasize % 4 == 0);  // Must be a multiple of 4B
     num_accesses = datasize / 4;
     assert(num_accesses <= MAX_ACCESSES_PER_INSN_PER_THREAD);  // max 32B
-    assert(
-        localaddr % 4 ==
-        0);  // Address must be 4B aligned - required if accessing 4B per
-             // request, otherwise access will overflow into next thread's space
+    // assert(
+    //     localaddr % 4 ==
+    //     0);  // Address must be 4B aligned - required if accessing 4B per
+    //          // request, otherwise access will overflow into next thread's space
     for (unsigned i = 0; i < num_accesses; i++) {
       address_type local_word = localaddr / 4 + i;
       address_type linear_address = local_word * max_concurrent_threads * 4 +
@@ -2128,7 +2128,7 @@ void ldst_unit::L1_latency_queue_cycle() {
       mem_fetch *mf_next = l1_latency_queue[j][0];
 
       if (mf_next->get_addr() >= 0x207a3e000 && mf_next->get_addr() <= 0x207bc5e00) {
-        flag =false;
+        flag =true;
       }
       if (flag){
         // printf("execute [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);

@@ -1295,7 +1295,7 @@ class baseline_cache : public cache_t {
                                            unsigned time,
                                            std::list<cache_event> &events) = 0;
   /// Sends next request to lower level of memory
-  void cycle();
+  virtual void cycle();
   /// Interface for response from lower memory level (model bandwidth
   /// restictions in caller)
   void fill(mem_fetch *mf, unsigned time);
@@ -1710,6 +1710,8 @@ class l2_cache : public data_cache {
                                            unsigned time,
                                            std::list<cache_event> &events);
   void fill(mem_fetch *mf, unsigned time);
+  void cycle() override;
+  void mshr_process(uint64_t first_addr, uint64_t second_addr);
 };
 
 /*****************************************************************************/

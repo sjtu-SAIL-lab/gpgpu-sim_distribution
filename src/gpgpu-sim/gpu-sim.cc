@@ -1212,6 +1212,8 @@ void gpgpu_sim::print_stats() {
 
 void gpgpu_sim::deadlock_check() {
   if (m_config.gpu_deadlock_detect && gpu_deadlock) {
+
+
     fflush(stdout);
     printf(
         "\n\nGPGPU-Sim uArch: ERROR ** deadlock detected: last writeback core "
@@ -1240,8 +1242,16 @@ void gpgpu_sim::deadlock_check() {
     printf("\n");
     for (unsigned i = 0; i < m_memory_config->m_n_mem; i++) {
       bool busy = m_memory_partition_unit[i]->busy();
-      if (busy)
-        printf("GPGPU-Sim uArch DEADLOCK:  memory partition %u busy\n", i);
+      if (busy) {
+      printf("GPGPU-Sim uArch DEADLOCK:  memory partition %u busy\n", i);
+      for (auto mf_ptr : m_memory_sub_partition[i]->get_request_tracker()) {
+        if (mf_ptr) {  // 安全检查
+          printf("  mf @ %p: addr = 0x%lx\n", mf_ptr, mf_ptr->get_addr());
+        } else {
+          printf("  NULL mf pointer encountered!\n");
+        }
+      }
+      }
     }
     if (icnt_busy()) {
       printf("GPGPU-Sim uArch DEADLOCK:  iterconnect contains traffic\n");
@@ -1912,7 +1922,14 @@ void gpgpu_sim::cycle() {
     // pop from memory controller to interconnect
     for (unsigned i = 0; i < m_memory_config->m_n_mem_sub_partition; i++) {
       mem_fetch *mf = m_memory_sub_partition[i]->top();
+
+      
       if (mf) {
+          // if (mf->get_addr() == 0x207B12200)
+          // {
+          //   volatile int x = 0;
+          //   printf("mf->get_addr() = 0x%llx\n", mf->get_addr());
+          // }
         unsigned response_size =
             mf->get_is_write() ? mf->get_ctrl_size() : mf->size();
         if (::icnt_has_buffer(m_shader_config->mem2device(i), response_size)) {
