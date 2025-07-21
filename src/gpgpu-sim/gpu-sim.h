@@ -33,9 +33,11 @@
 #define GPU_SIM_H
 
 #include <stdio.h>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <list>
+#include <vector>
 #include "../abstract_hardware_model.h"
 #include "../option_parser.h"
 #include "../trace.h"
@@ -352,11 +354,32 @@ class memory_config {
   bool m_perf_sim_memcpy;
   bool m_memcpy_keep_l2;
   bool simple_dram_model;
+  int gpgpu_overlap_mode;
+  std::vector<unsigned long long> gpgpu_overlap_addr_start;
+  std::vector<unsigned long long> gpgpu_overlap_addr_end;
 
   gpgpu_context *gpgpu_ctx;
 };
 
 extern bool g_interactive_debugger_enabled;
+
+inline void parse_numbers(const char *str, std::vector<unsigned long long> &numbers) {
+  std::stringstream ss(str);
+  std::string token;
+
+  while (std::getline(ss, token, ',')) {
+    size_t start = token.find_first_not_of(" \t");
+    size_t end = token.find_last_not_of(" \t");
+    if (start == std::string::npos || end == std::string::npos) continue;
+    token = token.substr(start, end - start + 1);
+
+    char *endptr = nullptr;
+    unsigned long long value = std::strtoull(token.c_str(), &endptr, 0);
+    if (endptr != token.c_str()) {
+      numbers.push_back(value);
+    }
+  }
+}
 
 class gpgpu_sim_config : public power_config,
                          public gpgpu_functional_sim_config {
@@ -378,6 +401,10 @@ class gpgpu_sim_config : public power_config,
     init_clock_domains();
     power_config::init();
     Trace::init();
+
+    m_memory_config.gpgpu_overlap_mode = gpgpu_overlap_mode;
+    parse_numbers(gpgpu_overlap_addr_start, m_memory_config.gpgpu_overlap_addr_start);
+    parse_numbers(gpgpu_overlap_addr_end, m_memory_config.gpgpu_overlap_addr_end);
 
     // initialize file name if it is not set
     time_t curr_time;
@@ -409,7 +436,7 @@ class gpgpu_sim_config : public power_config,
   }
 
   bool flush_l1() const { return gpgpu_flush_l1_cache; }
-
+  memory_config get_memory_config() const { return m_memory_config; }
  private:
   void init_clock_domains(void);
 
@@ -464,6 +491,9 @@ class gpgpu_sim_config : public power_config,
   unsigned int gpgpu_compute_capability_minor;
   unsigned long long liveness_message_freq;
 
+  int gpgpu_overlap_mode;
+  char *gpgpu_overlap_addr_start;
+  char *gpgpu_overlap_addr_end;
   friend class gpgpu_sim;
 };
 

@@ -2121,8 +2121,9 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue_l1cache(
 }
 
 void ldst_unit::L1_latency_queue_cycle() {
-  bool flag = true;
+  
   for (unsigned int j = 0; j < m_config->m_L1D_config.l1_banks; j++) {
+    bool flag = true;
     if ((l1_latency_queue[j][0]) != NULL) {
 
       mem_fetch *mf_next = l1_latency_queue[j][0];

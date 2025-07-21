@@ -487,8 +487,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
 
       if (need_process) {
           auto next_it = std::next(it);
-          uint64_t next_addr = (next_it != m_gpu->DLA_input.end()) ? 
-                              next_it->first : it->first + 0x100;
+          uint64_t next_addr =  it->first + 0x100;
 
           // printf("[DLA] Processing address: 0x%lx at cycle: %lu\n",
           //       it->first, current_cycle);
@@ -585,30 +584,40 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
         bool port_free = m_L2cache->data_port_free();
         if (!output_full && port_free) {
           bool flag = true;
-          if (mf->get_addr() >=     0x20cec1800   && mf->get_addr() <  0x20ceccfc0) {
-            // printf("Processing address: 0x%lx in cycle: %lu\n",
+
+          if (m_config->gpgpu_overlap_mode == 1 && mf->get_inst().op == 8) {
+          for (int i = 0; i < m_config->gpgpu_overlap_addr_start.size(); i++) {
+            if (mf->get_addr() >= m_config->gpgpu_overlap_addr_start[i] &&
+                mf->get_addr() <= m_config->gpgpu_overlap_addr_end[i]) {
+                // printf("Processing address: 0x%lx in cycle: %lu\n",
             //         mf->get_addr(), current_cycle);
-           auto it = m_gpu->DLA_input.lower_bound(mf->get_addr());
-           auto prev_it = std::prev(it);
-           
-            if (it != m_gpu->DLA_input.begin()) {
+          //  auto it = m_gpu->DLA_input.lower_bound(mf->get_addr());
+          //  auto prev_it = std::prev(it);
+            addr_t aligned_addr = mf->get_addr() & ~0xFF;
+            auto it = m_gpu->DLA_input.find(aligned_addr);
+            if (it != m_gpu->DLA_input.end()) {
             // printf(
             //         "Found matching map entry - Key: 0x%lx, Current cycle: %lu, Threshold cycle: %lu\n",
             //         prev_it->first, current_cycle, prev_it->second);  // 打印map中找到的键和值
             
-            if (prev_it->second > current_cycle) {
+            if (it->second > current_cycle) {
               // printf("Condition miss - keeping flag as i\n"); 
             } else {
               // printf("Condition hit  - setting flag to false\n");
               flag = false;  // Set flag to false if no previous entry exists
+              break;
             }
            } else {
             // printf(
             //         "No previous map entry found for address: 0x%lx- setting flag to false\n",
             //         mf->get_addr());  // 打印未找到前一个条目的情况
-            flag = false;  // Set flag to false if no previous entry exists
+            flag = true;  // Set flag to false if no previous entry exists
            }
-      }
+              
+            }
+          }
+        }
+
       // flag = true;
         if (flag){
           // printf("execute [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
