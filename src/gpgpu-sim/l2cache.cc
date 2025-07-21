@@ -194,6 +194,7 @@ bool memory_partition_unit::dram_is_busy() const
 {
   for (unsigned i = 0; i < m_config->m_n_sub_partition_per_memory_channel; i++) {
     if (!m_sub_partition[i]->L2_dram_queue_empty()) return true;
+    if (!m_sub_partition[i]->dram_L2_queue_empty()) return true;
     if (!m_sub_partition[i]->m_l2_isempty()) return true;
   }
   if (!m_dram->isempty()) return true;
@@ -543,11 +544,15 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
       bool output_full = m_L2_icnt_queue->full();
       bool port_free = m_L2cache->data_port_free();
       if (!output_full && port_free) {
-
-
         bool flag = true;
-        if (mf->get_addr() >= 0x207a3e000 && mf->get_addr() <= 0x207bc5e00) {
-          flag = false;
+        if (m_config->gpgpu_bypass_mode == 2 && mf->get_inst().op == 8) {
+          for (int i = 0; i < m_config->gpgpu_bypass_addr_start.size(); i++) {
+            if (mf->get_addr() >= m_config->gpgpu_bypass_addr_start[i] &&
+                mf->get_addr() <= m_config->gpgpu_bypass_addr_end[i]) {
+              flag = false;
+              break;
+            }
+          }
         }
         if (flag){
           // printf("execute [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
@@ -606,7 +611,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
         }
         else
         {
-          // printf("PASS [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
+          printf("PASS [L2D -> access ] addr=%lx   op = %lu \n", mf->get_addr(), mf->get_inst().op);
           if (mf->get_access_type() == L1_WRBK_ACC) {
             m_request_tracker.erase(mf);
             delete mf;
@@ -647,6 +652,10 @@ bool memory_sub_partition::full(unsigned size) const {
 
 bool memory_sub_partition::L2_dram_queue_empty() const {
   return m_L2_dram_queue->empty();
+}
+
+bool memory_sub_partition::dram_L2_queue_empty() const {
+  return m_dram_L2_queue->empty();
 }
 
 class mem_fetch *memory_sub_partition::L2_dram_queue_top() const {

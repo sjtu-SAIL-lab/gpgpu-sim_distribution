@@ -34,6 +34,7 @@
 #include <float.h>
 #include <limits.h>
 #include <string.h>
+#include <cstdio>
 #include "../../libcuda/gpgpu_context.h"
 #include "../cuda-sim/cuda-sim.h"
 #include "../cuda-sim/ptx-stats.h"
@@ -1337,7 +1338,6 @@ void scheduler_unit::cycle() {
                 "Warp (warp_id %u, dynamic_warp_id %u) passes scoreboard\n",
                 (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id());
             ready_inst = true;
-
             const active_mask_t &active_mask =
                 m_shader->get_active_mask(warp_id, pI);
 
@@ -1347,10 +1347,15 @@ void scheduler_unit::cycle() {
                 (pI->op == MEMORY_BARRIER_OP) ||
                 (pI->op == TENSOR_CORE_LOAD_OP) ||
                 (pI->op == TENSOR_CORE_STORE_OP)) {
+
+            
+
               if (m_mem_out->has_free(m_shader->m_config->sub_core_model,
                                       m_id) &&
                   (!diff_exec_units ||
                    previous_issued_inst_exec_type != exec_unit_type_t::MEM)) {
+
+                // if (! (pI->op == LOAD_OP && pI->get_addr(0) >= 0x2084be000 &&  pI->get_addr(0) <= 0x2086451f0))
                 m_shader->issue_warp(*m_mem_out, pI, active_mask, warp_id,
                                      m_id);
                 issued++;
@@ -1729,7 +1734,7 @@ unsigned shader_core_ctx::translate_local_memaddr(
   // During functional execution, each thread sees its own memory space for
   // local memory, but these need to be mapped to a shared address space for
   // timing simulation.  We do that mapping here.
-
+  // printf("localaddr: %lx , datasize: %lu\n", localaddr, datasize);
   address_type thread_base = 0;
   unsigned max_concurrent_threads = 0;
   if (m_config->gpgpu_local_mem_map) {
@@ -1768,10 +1773,14 @@ unsigned shader_core_ctx::translate_local_memaddr(
     assert(datasize % 4 == 0);  // Must be a multiple of 4B
     num_accesses = datasize / 4;
     assert(num_accesses <= MAX_ACCESSES_PER_INSN_PER_THREAD);  // max 32B
-    assert(
-        localaddr % 4 ==
-        0);  // Address must be 4B aligned - required if accessing 4B per
-             // request, otherwise access will overflow into next thread's space
+  //   if (localaddr % 4 != 0) {
+  //     fprintf(stderr, "Assertion failed: Address %p for datasize %lu is not 4B aligned\n", (void*)localaddr, datasize);
+  //     abort(); // 终止程序
+  // }
+    // assert(
+    //     localaddr % 4 ==
+    //     0);  // Address must be 4B aligned - required if accessing 4B per
+    //          // request, otherwise access will overflow into next thread's space
     for (unsigned i = 0; i < num_accesses; i++) {
       address_type local_word = localaddr / 4 + i;
       address_type linear_address = local_word * max_concurrent_threads * 4 +
@@ -1909,8 +1918,10 @@ void shader_core_ctx::unset_depbar(const warp_inst_t &inst) {
 
 void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
 #if 0
-      printf("[warp_inst_complete] uid=%u core=%u warp=%u pc=%#x @ time=%llu \n",
-             inst.get_uid(), m_sid, inst.warp_id(), inst.pc,  m_gpu->gpu_tot_sim_cycle +  m_gpu->gpu_sim_cycle);
+  if (inst.is_load() || inst.is_store()) {
+      printf("[warp_inst_complete] uid=%u core=%u warp=%u pc=%#x @ time=%llu addr=%lx\n",
+             inst.get_uid(), m_sid, inst.warp_id(), inst.pc,  m_gpu->gpu_tot_sim_cycle +  m_gpu->gpu_sim_cycle, inst.get_addr(0));
+      }
 #endif
   if (inst.op_pipe == SP__OP)
     m_stats->m_num_sp_committed[m_sid]++;
@@ -1981,7 +1992,7 @@ bool ldst_unit::shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
   if (inst.space.get_type() != shared_space) return true;
 
   if (inst.active_count() == 0) return true;
-
+  
   if (inst.has_dispatch_delay()) {
     m_stats->gpgpu_n_shmem_bank_access[m_sid]++;
   }
@@ -2065,7 +2076,6 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue_l1cache(
     l1_cache *cache, warp_inst_t &inst) {
   mem_stage_stall_type result = NO_RC_FAIL;
   if (inst.accessq_empty()) return result;
-
   if (m_config->m_L1D_config.l1_latency > 0) {
     for (unsigned int j = 0; j < m_config->m_L1D_config.l1_banks;
          j++) {  // We can handle at max l1_banks reqs per cycle
@@ -2082,7 +2092,6 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue_l1cache(
       if ((l1_latency_queue[bank_id][m_config->m_L1D_config.l1_latency - 1]) ==
           NULL) {
         l1_latency_queue[bank_id][m_config->m_L1D_config.l1_latency - 1] = mf;
-
         if (mf->get_inst().is_store()) {
           unsigned inc_ack =
               (m_config->m_L1D_config.get_mshr_type() == SECTOR_ASSOC)
@@ -2121,17 +2130,24 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue_l1cache(
 }
 
 void ldst_unit::L1_latency_queue_cycle() {
-  bool flag = true;
+  
   for (unsigned int j = 0; j < m_config->m_L1D_config.l1_banks; j++) {
+    bool flag = true;
     if ((l1_latency_queue[j][0]) != NULL) {
 
       mem_fetch *mf_next = l1_latency_queue[j][0];
-
-      if (mf_next->get_addr() >= 0x207a3e000 && mf_next->get_addr() <= 0x207bc5e00) {
-        flag =false;
+      if (m_config->gpgpu_bypass_mode == 1 && mf_next->get_inst().op == 8 ) {
+        for (int i = 0; i < m_config->gpgpu_bypass_addr_start.size(); i++) {
+          if (mf_next->get_addr() >= m_config->gpgpu_bypass_addr_start[i] &&
+              mf_next->get_addr() <= m_config->gpgpu_bypass_addr_end[i]) {
+            flag = false;
+            break;
+          }
+        }
       }
-      if (flag){
-        // printf("execute [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
+      // flag = false;
+      if (flag) {
+        // printf("execute [L1D -> access ] addr=%lx   op = %lu type = %lu \n", mf_next->get_addr(), mf_next->get_inst().op, mf_next->get_inst().space.get_type());
         std::list<cache_event> events;
         enum cache_request_status status =
             m_L1D->access(mf_next->get_addr(), mf_next,
@@ -2212,9 +2228,14 @@ void ldst_unit::L1_latency_queue_cycle() {
             if (!write_sent && !read_sent) delete mf_next;
           }
         }
+<<<<<<< HEAD
+      } else {
+        printf("PASS [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
+=======
       }
       else{
         // printf("PASS [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
+>>>>>>> d0ee69a90002cbe2d03a66b7799549791a1f39c7
         bool write_sent = false;
         bool read_sent = false;
         l1_latency_queue[j][0] = NULL;
@@ -2260,9 +2281,10 @@ void ldst_unit::L1_latency_queue_cycle() {
           for (unsigned i = 0; i < dec_ack; ++i) m_core->store_ack(mf_next);
         }
 
-        if (!write_sent) delete mf_next;   
+        if (!write_sent) delete mf_next;
       }
     }
+
 
     for (unsigned stage = 0; stage < m_config->m_L1D_config.l1_latency - 1;
          ++stage)
@@ -2270,6 +2292,7 @@ void ldst_unit::L1_latency_queue_cycle() {
         l1_latency_queue[j][stage] = l1_latency_queue[j][stage + 1];
         l1_latency_queue[j][stage + 1] = NULL;
       }
+      flag = true;
   }
 }
 
@@ -2280,7 +2303,6 @@ bool ldst_unit::constant_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
                        (inst.space.get_type() != param_space_kernel)))
     return true;
   if (inst.active_count() == 0) return true;
-
   mem_stage_stall_type fail;
   if (m_config->perfect_inst_const_cache) {
     fail = NO_RC_FAIL;
@@ -2322,13 +2344,13 @@ bool ldst_unit::texture_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
 bool ldst_unit::memory_cycle(warp_inst_t &inst,
                              mem_stage_stall_type &stall_reason,
                              mem_stage_access_type &access_type) {
+  
   if (inst.empty() || ((inst.space.get_type() != global_space) &&
                        (inst.space.get_type() != local_space) &&
                        (inst.space.get_type() != param_space_local)))
     return true;
   if (inst.active_count() == 0) return true;
-  if (inst.accessq_empty()) return true;
-
+  if (inst.accessq_empty()) return true;                           
   mem_stage_stall_type stall_cond = NO_RC_FAIL;
   const mem_access_t &access = inst.accessq_back();
 
@@ -2975,6 +2997,14 @@ void ldst_unit::cycle() {
       if (pipe_reg.space.get_type() == shared_space) {
         if (m_pipeline_reg[m_config->smem_latency - 1]->empty()) {
           // new shared memory request
+          warp_inst_t inst = pipe_reg;
+          // printf(
+          //     "[shared memory request] uid=%u core=%u warp=%u pc=%#x @ time=%llu "
+          //     "addr=%lx\n",
+          //     inst.get_uid(), m_sid, inst.warp_id(), inst.pc,
+          //     m_core->get_gpu()->gpu_tot_sim_cycle +
+          //         m_core->get_gpu()->gpu_sim_cycle,
+          //     inst.get_addr(0));
           move_warp(m_pipeline_reg[m_config->smem_latency - 1], m_dispatch_reg);
           m_dispatch_reg->clear();
         }
@@ -3607,7 +3637,6 @@ unsigned int shader_core_config::max_cta(const kernel_info_t &k) const {
     result = k.num_blocks() / num_shader();
     if (k.num_blocks() % num_shader()) result++;
   }
-
   assert(result <= MAX_CTA_PER_SHADER);
   if (result < 1) {
     printf(
@@ -3713,7 +3742,6 @@ void shader_core_config::set_pipeline_latency() {
 
 void shader_core_ctx::cycle() {
   if (!isactive() && get_not_completed() == 0) return;
-
   m_stats->shader_cycles[m_sid]++;
   writeback();
   execute();

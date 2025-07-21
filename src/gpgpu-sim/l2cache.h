@@ -185,6 +185,7 @@ class memory_sub_partition {
 
   // interface to L2_dram_queue
   bool L2_dram_queue_empty() const;
+  bool dram_L2_queue_empty() const;
   class mem_fetch *L2_dram_queue_top() const;
   void L2_dram_queue_pop();
 

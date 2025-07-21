@@ -1711,6 +1711,10 @@ class shader_core_config : public core_config {
   char *specialized_unit_string[SPECIALIZED_UNIT_NUM];
   mutable std::vector<specialized_unit_params> m_specialized_unit;
   unsigned m_specialized_unit_num;
+
+  int gpgpu_bypass_mode;
+  std::vector<unsigned long long> gpgpu_bypass_addr_start;
+  std::vector<unsigned long long> gpgpu_bypass_addr_end;
 };
 
 struct shader_core_stats_pod {

@@ -33,9 +33,11 @@
 #define GPU_SIM_H
 
 #include <stdio.h>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <list>
+#include <vector>
 #include "../abstract_hardware_model.h"
 #include "../option_parser.h"
 #include "../trace.h"
@@ -353,10 +355,32 @@ class memory_config {
   bool m_memcpy_keep_l2;
   bool simple_dram_model;
 
+  int gpgpu_bypass_mode;
+  std::vector<unsigned long long> gpgpu_bypass_addr_start;
+  std::vector<unsigned long long> gpgpu_bypass_addr_end;
+
   gpgpu_context *gpgpu_ctx;
 };
 
 extern bool g_interactive_debugger_enabled;
+
+inline void parse_numbers(const char *str, std::vector<unsigned long long> &numbers) {
+  std::stringstream ss(str);
+  std::string token;
+
+  while (std::getline(ss, token, ',')) {
+    size_t start = token.find_first_not_of(" \t");
+    size_t end = token.find_last_not_of(" \t");
+    if (start == std::string::npos || end == std::string::npos) continue;
+    token = token.substr(start, end - start + 1);
+
+    char *endptr = nullptr;
+    unsigned long long value = std::strtoull(token.c_str(), &endptr, 0);
+    if (endptr != token.c_str()) {
+      numbers.push_back(value);
+    }
+  }
+}
 
 class gpgpu_sim_config : public power_config,
                          public gpgpu_functional_sim_config {
@@ -378,6 +402,19 @@ class gpgpu_sim_config : public power_config,
     init_clock_domains();
     power_config::init();
     Trace::init();
+    m_shader_config.gpgpu_bypass_mode = gpgpu_bypass_mode;
+    parse_numbers(gpgpu_bypass_addr_start, m_shader_config.gpgpu_bypass_addr_start);
+    parse_numbers(gpgpu_bypass_addr_end, m_shader_config.gpgpu_bypass_addr_end);
+    m_memory_config.gpgpu_bypass_mode = gpgpu_bypass_mode;
+    parse_numbers(gpgpu_bypass_addr_start, m_memory_config.gpgpu_bypass_addr_start);
+    parse_numbers(gpgpu_bypass_addr_end, m_memory_config.gpgpu_bypass_addr_end);
+
+    for (int i = 0; i < m_shader_config.gpgpu_bypass_addr_start.size(); i++) {
+      printf("gpgpu_bypass_addr_start[%d] = 0x%llx\n", i,
+             m_shader_config.gpgpu_bypass_addr_start[i]);
+      printf("gpgpu_bypass_addr_end[%d] = 0x%llx\n", i,
+             m_shader_config.gpgpu_bypass_addr_end[i]);
+    }
 
     // initialize file name if it is not set
     time_t curr_time;
@@ -427,7 +464,7 @@ class gpgpu_sim_config : public power_config,
   double icnt_period;
   double dram_period;
   double l2_period;
-
+  
   // GPGPU-Sim timing model options
   unsigned long long gpu_max_cycle_opt;
   unsigned long long gpu_max_insn_opt;
@@ -443,27 +480,30 @@ class gpgpu_sim_config : public power_config,
   int gpgpu_cflog_interval;
   char *gpgpu_clock_domains;
   unsigned max_concurrent_kernel;
+  int gpgpu_bypass_mode;
+  char *gpgpu_bypass_addr_start;
+  char *gpgpu_bypass_addr_end;
 
   // visualizer
   bool g_visualizer_enabled;
   char *g_visualizer_filename;
   int g_visualizer_zlevel;
-
+  
   // statistics collection
   int gpu_stat_sample_freq;
   int gpu_runtime_stat_flag;
-
+  
   // Device Limits
   size_t stack_size_limit;
   size_t heap_size_limit;
   size_t runtime_sync_depth_limit;
   size_t runtime_pending_launch_count_limit;
-
+  
   // gpu compute capability options
   unsigned int gpgpu_compute_capability_major;
   unsigned int gpgpu_compute_capability_minor;
   unsigned long long liveness_message_freq;
-
+  
   friend class gpgpu_sim;
 };
 

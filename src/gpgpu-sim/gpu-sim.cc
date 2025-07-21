@@ -702,6 +702,15 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
   option_parser_register(opp, "-gpgpu_include_dram_cycle", OPT_BOOL,
                          &gpgpu_include_dram_cycle,
                          "add_simulation_for_dram_writeback_cycle", "0");
+  option_parser_register(
+      opp, "-gpgpu_bypass_mode", OPT_INT32, &gpgpu_bypass_mode,
+      "Bypass mode (0=off (default), 1=l1 by pass, 2=l2 by pass)", "0");
+  option_parser_register(opp, "-gpgpu_bypass_addr_start", OPT_CSTR,
+                         &gpgpu_bypass_addr_start,
+                         "Bypass address start (default = 0x0). You can specify multiple addresses separated by commas", "0x0");
+  option_parser_register(opp, "-gpgpu_bypass_addr_end", OPT_CSTR,
+                         &gpgpu_bypass_addr_end,
+                         "Bypass address end (default = 0x0). You can specify multiple addresses separated by commas", "0x0");
   option_parser_register(opp, "-gpgpu_invalidate_l2_cache", OPT_BOOL,
                          &gpgpu_invalidate_l2_cache,
                          "Invalidate L2 cache at the end of each kernel call", "0");

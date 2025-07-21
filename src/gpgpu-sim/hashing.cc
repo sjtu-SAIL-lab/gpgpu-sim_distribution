@@ -38,7 +38,15 @@ unsigned ipoly_hash_function(new_addr_type higher_bits, unsigned index,
    * exit in GPGPU applications and also show good performance for other
    * strides.
    */
-  if (bank_set_num == 8) {
+  if (bank_set_num == 4) {
+    std::bitset<64> a(higher_bits);
+    std::bitset<2> b(index);
+    std::bitset<2> new_index(index);
+    new_index[0] = a[11] ^ a[10] ^ a[9] ^ a[7] ^ a[4] ^ a[3] ^ a[2] ^ a[0] ^ b[0];
+    new_index[1] = a[12] ^ a[9] ^ a[8] ^ a[7] ^ a[5] ^ a[2] ^ a[1] ^ a[0] ^ b[1];
+    return new_index.to_ulong();
+}
+  else if (bank_set_num == 8) {
     std::bitset<64> a(higher_bits);
     std::bitset<3> b(index);
     std::bitset<3> new_index(index);
