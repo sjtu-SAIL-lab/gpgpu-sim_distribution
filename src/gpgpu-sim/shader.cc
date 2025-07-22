@@ -2228,14 +2228,8 @@ void ldst_unit::L1_latency_queue_cycle() {
             if (!write_sent && !read_sent) delete mf_next;
           }
         }
-<<<<<<< HEAD
       } else {
         printf("PASS [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
-=======
-      }
-      else{
-        // printf("PASS [L1D -> access ] addr=%lx   op = %lu \n", mf_next->get_addr(), mf_next->get_inst().op);
->>>>>>> d0ee69a90002cbe2d03a66b7799549791a1f39c7
         bool write_sent = false;
         bool read_sent = false;
         l1_latency_queue[j][0] = NULL;
