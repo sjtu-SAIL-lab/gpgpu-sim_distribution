@@ -548,7 +548,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
         if (m_config->gpgpu_bypass_mode == 2 && mf->get_inst().op == 8) {
           for (int i = 0; i < m_config->gpgpu_bypass_addr_start.size(); i++) {
             if (mf->get_addr() >= m_config->gpgpu_bypass_addr_start[i] &&
-                mf->get_addr() <= m_config->gpgpu_bypass_addr_end[i]) {
+                mf->get_addr() < m_config->gpgpu_bypass_addr_end[i]) {
               flag = false;
               break;
             }

@@ -2139,7 +2139,7 @@ void ldst_unit::L1_latency_queue_cycle() {
       if (m_config->gpgpu_bypass_mode == 1 && mf_next->get_inst().op == 8 ) {
         for (int i = 0; i < m_config->gpgpu_bypass_addr_start.size(); i++) {
           if (mf_next->get_addr() >= m_config->gpgpu_bypass_addr_start[i] &&
-              mf_next->get_addr() <= m_config->gpgpu_bypass_addr_end[i]) {
+              mf_next->get_addr() < m_config->gpgpu_bypass_addr_end[i]) {
             flag = false;
             break;
           }
