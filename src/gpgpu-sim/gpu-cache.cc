@@ -1090,6 +1090,8 @@ void baseline_cache::cycle() {
     if (!m_memport->full(mf->size(), mf->get_is_write())) {
       m_miss_queue.pop_front();
       m_memport->push(mf);
+      // printf("Cache %s sending request addr 0x%llx\n", m_name.c_str(),
+      //         (unsigned long long)mf->get_addr());
     }
   }
   bool data_port_busy = !m_bandwidth_management.data_port_free();
@@ -1202,6 +1204,7 @@ void baseline_cache::send_read_request(new_addr_type addr,
     m_mshrs.add(mshr_addr, mf);
     m_stats.inc_stats(mf->get_access_type(), MSHR_HIT);
     do_miss = true;
+    
 
   } else if (!mshr_hit && mshr_avail &&
              (m_miss_queue.size() < m_config.m_miss_queue_size)) {
@@ -1222,6 +1225,8 @@ void baseline_cache::send_read_request(new_addr_type addr,
       mf->set_addr(mshr_addr);
     }
     m_miss_queue.push_back(mf);
+    // printf("Cache %s sending read request for addr 0x%llx\n",
+    //         m_name.c_str(), (unsigned long long)mf->get_addr());
     mf->set_status(m_miss_queue_status, time);
     if (!wa) events.push_back(cache_event(READ_REQUEST_SENT));
 
@@ -1906,6 +1911,8 @@ void l2_cache::fill(mem_fetch *mf, unsigned time) {
 
   bool has_atomic = false;
   m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
+  // printf("mshr_mark_ready: addr=0x%llx atomic=%d\n",
+  //        e->second.m_block_addr, has_atomic);
   // prefetch mf should not be atomic
   assert(!(has_atomic && mf->get_original_prefetch_mf() != NULL));
   if (has_atomic) {
@@ -2070,7 +2077,7 @@ void tex_cache::display_state(FILE *fp) const {
 }
 
 
-void data_cache::flushL2(unsigned time,std::list<cache_event> &events) {
+void l2_cache::flushL2(unsigned time,std::list<cache_event> &events) {
   if (!m_tag_array->is_used_cache()) return;
 
   for (unsigned i = 0; i < m_config.get_num_lines(); i++)
@@ -2103,5 +2110,117 @@ void data_cache::flushL2(unsigned time,std::list<cache_event> &events) {
   m_tag_array->set_unused_cache();
 }
 
+bool l2_cache::does_address_map_to_partition(new_addr_type address,
+                                   unsigned target_partition_id,
+                                   const memory_config *mem_config)
+{
+    // 1. 安全检查，确保内存配置对象有效
+    assert(mem_config != NULL && "Memory configuration object is required!");
+
+    // 2. 创建一个结构体，用于存储地址解码后的各个部分
+    addrdec_t decoded_address_info;
+
+    m_gpu->getMemoryConfig()->m_L2_config.m_address_mapping->addrdec_tlx(address, &decoded_address_info);
+
+    // 4. 在解码后的结构体中，'chip' 字段通常对应于内存分区的ID
+    unsigned int partition_id = decoded_address_info.sub_partition;
+    // if(partition_id == target_partition_id)
+    // {
+    //     printf("Address 0x%llx correctly maps to partition ID %u\n", address, partition_id);
+    // }
+    // 5. 比较计算出的分区ID和目标ID
+    return (partition_id == target_partition_id);
+}
+
+
+bool l2_cache::recover_address_range(new_addr_type addr_start,
+                                       new_addr_type addr_end,
+                                       unsigned time,
+                                       std::list<cache_event> &events,
+                                       unsigned int partition_id) {
+    if (!m_tag_array->is_used_cache()) return true;
+
+    bool all_lines_were_present = true;
+    const unsigned check_granularity = 32; 
+    const unsigned access_size = 32;
+    for (new_addr_type addr = addr_start; addr <= addr_end; addr += check_granularity) {
+        new_addr_type block_addr = m_config.block_addr(addr);
+        
+        if (!does_address_map_to_partition(addr, partition_id, m_gpu->getMemoryConfig())) {
+            continue;
+        }
+
+        unsigned cache_index = (unsigned)-1;
+
+        mem_access_sector_mask_t single_sector_mask;
+        unsigned chunk = (addr & 127) / 32;
+        single_sector_mask.set(chunk);
+
+        enum cache_request_status status =
+            m_tag_array->probe(block_addr, cache_index, single_sector_mask, false, true, NULL);
+        
+        if (status != HIT && status != HIT_RESERVED && status != RESERVATION_FAIL) {
+            if (m_pending_misses.count(addr)) {
+                continue; 
+            }
+            all_lines_were_present = false;
+            
+
+            if (m_miss_queue.size() >= m_config.m_miss_queue_size) {
+                break;
+            }
+
+            // --- FIX #2: 为 ALLOCATE 创建合法的掩码 (逻辑保持不变) ---
+            
+            mem_access_t access(GLOBAL_ACC_R, addr, access_size, false, m_gpu->gpgpu_ctx);
+            mem_access_byte_mask_t byte_mask;
+            mem_access_sector_mask_t sector_mask;
+            active_mask_t active_mask; // 系统级请求，保持为空
+
+            // 步骤 B: 手动计算掩码内容
+            // 我们需要访问从 `addr` 开始，长度为 `access_size` 的字节
+            unsigned offset_in_128B_segment = addr & 127;
+            for (unsigned i = 0; i < access_size; i++) {
+                if ((offset_in_128B_segment + i) < 128) {
+                    byte_mask.set(offset_in_128B_segment + i);
+                }
+            }
+
+            // 步骤 C: 手动从字节掩码派生出扇区掩码
+            unsigned chunk = (addr & 127) / 32;
+            sector_mask.set(chunk);
+            const unsigned invalid_id = (unsigned)-1;
+
+            mem_fetch *read_mf = m_memfetch_creator->alloc(
+                block_addr,
+                L2_WR_ALLOC_R,
+                active_mask,
+                byte_mask,
+                sector_mask,
+                m_config.get_line_sz(),
+                false,
+                m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle,
+                invalid_id,
+                invalid_id,
+                invalid_id,
+                NULL
+            );
+
+            // read_mf->set_chip(partition_id);
+            // read_mf->set_partition(partition_id);
+            bool do_miss = false;
+            bool needs_write_back = false;
+            evicted_block_info evicted;
+
+            send_read_request(addr, block_addr, cache_index, read_mf, time,
+                              do_miss, needs_write_back, evicted, events, false, false);
+            m_pending_misses.insert(addr);
+            // printf("l2_cache::recover_address_range - Miss on address 0x%llx, block_addr 0x%llx, partition_id %u, cycle %lld \n", addr, block_addr, partition_id, m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
+
+            break;
+        }
+    }
+    return all_lines_were_present;
+}
 
 /******************************************************************************************************************************************/

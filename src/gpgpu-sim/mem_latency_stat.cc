@@ -231,8 +231,11 @@ void memory_stats_t::memlatstat_dram_access(mem_fetch *mf) {
       totalbankwrites[dram_id][bank] +=
           ceil(mf->get_data_size() / m_memory_config->dram_atom_size);
     } else {
-      bankreads[mf->get_sid()][dram_id][bank]++;
-      shader_mem_acc_log(mf->get_sid(), dram_id, bank, 'r');
+      if (mf->get_sid() < m_n_shader) {
+        bankreads[mf->get_sid()][dram_id][bank]++;
+        shader_mem_acc_log(mf->get_sid(), dram_id, bank, 'r');
+      }
+      // --- FIX ENDS HERE ---
       totalbankreads[dram_id][bank] +=
           ceil(mf->get_data_size() / m_memory_config->dram_atom_size);
     }

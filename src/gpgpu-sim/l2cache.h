@@ -180,6 +180,7 @@ class memory_sub_partition {
   void set_done(mem_fetch *mf);
 
   unsigned flushL2();
+  unsigned readback(unsigned int i);
   unsigned invalidateL2();
   unsigned invalidateL2Except(std::vector<std::pair<size_t, size_t>> except_addr);
 

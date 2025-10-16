@@ -359,6 +359,10 @@ class memory_config {
   std::vector<unsigned long long> gpgpu_bypass_addr_start;
   std::vector<unsigned long long> gpgpu_bypass_addr_end;
 
+  int gpgpu_readback_mode;
+  std::vector<unsigned long long> gpgpu_readback_addr_start;
+  std::vector<unsigned long long> gpgpu_readback_addr_end;
+
   gpgpu_context *gpgpu_ctx;
 };
 
@@ -408,6 +412,10 @@ class gpgpu_sim_config : public power_config,
     m_memory_config.gpgpu_bypass_mode = gpgpu_bypass_mode;
     parse_numbers(gpgpu_bypass_addr_start, m_memory_config.gpgpu_bypass_addr_start);
     parse_numbers(gpgpu_bypass_addr_end, m_memory_config.gpgpu_bypass_addr_end);
+
+    m_memory_config.gpgpu_readback_mode = gpgpu_readback_mode;
+    parse_numbers(gpgpu_readback_addr_start, m_memory_config.gpgpu_readback_addr_start);
+    parse_numbers(gpgpu_readback_addr_end, m_memory_config.gpgpu_readback_addr_end);
 
     for (int i = 0; i < m_shader_config.gpgpu_bypass_addr_start.size(); i++) {
       printf("gpgpu_bypass_addr_start[%d] = 0x%llx\n", i,
@@ -483,6 +491,9 @@ class gpgpu_sim_config : public power_config,
   int gpgpu_bypass_mode;
   char *gpgpu_bypass_addr_start;
   char *gpgpu_bypass_addr_end;
+  int gpgpu_readback_mode;
+  char *gpgpu_readback_addr_start;
+  char *gpgpu_readback_addr_end;
 
   // visualizer
   bool g_visualizer_enabled;
@@ -571,6 +582,7 @@ class gpgpu_sim : public gpgpu_t {
 
   void init();
   void cycle();
+  void readback_cycle();
   void l2_flush_cycle();
   bool active(bool flag  = false);
   bool cycle_insn_cta_max_hit() {
@@ -651,6 +663,7 @@ class gpgpu_sim : public gpgpu_t {
   // clocks
   void reinit_clock_domains(void);
   int next_clock_domain(void);
+  int get_clock_domain(void);
   void issue_block2core();
   void print_dram_stats(FILE *fout) const;
   void shader_print_runtime_stat(FILE *fout);

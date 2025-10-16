@@ -711,6 +711,15 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
   option_parser_register(opp, "-gpgpu_bypass_addr_end", OPT_CSTR,
                          &gpgpu_bypass_addr_end,
                          "Bypass address end (default = 0x0). You can specify multiple addresses separated by commas", "0x0");
+  option_parser_register(
+      opp, "-gpgpu_readback_mode", OPT_INT32, &gpgpu_readback_mode,
+      "Readback mode (0=off (default), 1=read back)", "0");
+  option_parser_register(opp, "-gpgpu_readback_addr_start", OPT_CSTR,
+                         &gpgpu_readback_addr_start,
+                         "Readback address start (default = 0x0). You can specify multiple addresses separated by commas", "0x0");
+  option_parser_register(opp, "-gpgpu_readback_addr_end", OPT_CSTR,
+                         &gpgpu_readback_addr_end,
+                         "Readback address end (default = 0x0). You can specify multiple addresses separated by commas", "0x0");
   option_parser_register(opp, "-gpgpu_invalidate_l2_cache", OPT_BOOL,
                          &gpgpu_invalidate_l2_cache,
                          "Invalidate L2 cache at the end of each kernel call", "0");
@@ -1118,7 +1127,7 @@ bool gpgpu_sim::active(bool flag) {
   for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
     if (m_memory_partition_unit[i]->busy() > 0) return true;
   ;
-  if(m_config.gpgpu_include_dram_cycle && flag == 1)
+  if(flag == 1)
   {
   for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
     if (m_memory_partition_unit[i]->dram_is_busy() > 0) return true;
@@ -1893,6 +1902,27 @@ int gpgpu_sim::next_clock_domain(void) {
   return mask;
 }
 
+int gpgpu_sim::get_clock_domain(void) {
+  // Find the smallest time value among all clock domains
+  double smallest = min3(core_time, icnt_time, dram_time);
+
+  int mask = 0x00;
+  if (l2_time <= smallest) {
+    smallest = l2_time;
+    mask |= L2;
+  }
+  if (icnt_time <= smallest) {
+    mask |= ICNT;
+  }
+  if (dram_time <= smallest) {
+    mask |= DRAM;
+  }
+  if (core_time <= smallest) {
+    mask |= CORE;
+  }
+  return mask;
+}
+
 void gpgpu_sim::issue_block2core() {
   unsigned last_issued = m_last_cluster_issue;
   for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
@@ -2202,6 +2232,49 @@ void gpgpu_sim::l2_flush_cycle(){
       _active = active(true);
       finished_kernel_uid = finished_kernel();
     } while (_active && !finished_kernel_uid);
+  }
+}
+
+void gpgpu_sim::readback_cycle(){
+  if (m_config.gpgpu_readback_mode)
+  {
+    bool flag = 1;
+    unsigned finished_kernel_uid = 0;
+    unsigned _active = 0;
+    
+    do {
+      int clock_mask = get_clock_domain();
+      flag = 1;
+      if (clock_mask & L2) {
+      for (unsigned i = 0; i < m_memory_config->m_n_mem_sub_partition; i++) {
+        
+          bool dlc = m_memory_sub_partition[i]->readback(i);
+          if(dlc == false)
+          {
+            flag = 0;
+          }
+        }
+      }
+      else
+        {
+          flag = 0;
+        }
+      
+      if (!active(true) && flag) break;
+      // performance simulation
+      if (active(true) || !flag) {
+        cycle();
+        deadlock_check();
+      } else {
+        if (cycle_insn_cta_max_hit()) {
+          // m_gpgpu_context->the_gpgpusim->g_stream_manager
+          //     ->stop_all_running_kernels();
+          break;
+        }
+      }
+      _active = active(true);
+      finished_kernel_uid = finished_kernel();
+    } while ((_active && !finished_kernel_uid) || !flag);
   }
 }
 

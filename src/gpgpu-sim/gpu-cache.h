@@ -38,7 +38,7 @@
 #include "../tr1_hash_map.h"
 #include "gpu-misc.h"
 #include "mem_fetch.h"
-
+#include <unordered_set>
 #include <iostream>
 #include "addrdec.h"
 
@@ -931,9 +931,9 @@ class l2_cache_config : public cache_config {
   l2_cache_config() : cache_config() {}
   void init(linear_to_raw_address_translation *address_mapping);
   virtual unsigned set_index(new_addr_type addr) const;
-
- private:
   linear_to_raw_address_translation *m_address_mapping;
+ private:
+  
 };
 
 class tag_array {
@@ -1488,8 +1488,8 @@ class data_cache : public baseline_cache {
     m_wrbk_type = wrbk_type;
     m_gpu = gpu;
   }
-  void flushL2(unsigned time,
-                          std::list<cache_event> &event);
+
+
   virtual ~data_cache() {}
 
   virtual void init(mem_fetch_allocator *mfcreator) {
@@ -1710,6 +1710,18 @@ class l2_cache : public data_cache {
                                            unsigned time,
                                            std::list<cache_event> &events);
   void fill(mem_fetch *mf, unsigned time);
+  void flushL2(unsigned time,
+                        std::list<cache_event> &event);
+  bool recover_address_range(new_addr_type addr_start, 
+                new_addr_type addr_end,
+                unsigned time,
+                std::list<cache_event> &events,
+                unsigned int partition_id);
+
+  bool does_address_map_to_partition(new_addr_type address,
+                                   unsigned target_partition_id,
+                                   const memory_config *mem_config);
+  std::unordered_set<new_addr_type> m_pending_misses;
 };
 
 /*****************************************************************************/

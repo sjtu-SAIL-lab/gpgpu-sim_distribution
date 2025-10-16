@@ -190,15 +190,42 @@ void memory_partition_unit::arbitration_metadata::print(FILE *fp) const {
 }
 
 
-bool memory_partition_unit::dram_is_busy() const
-{
+bool memory_partition_unit::dram_is_busy() const {
+  // 检查每个子分区 (sub partition)
   for (unsigned i = 0; i < m_config->m_n_sub_partition_per_memory_channel; i++) {
-    if (!m_sub_partition[i]->L2_dram_queue_empty()) return true;
-    if (!m_sub_partition[i]->dram_L2_queue_empty()) return true;
-    if (!m_sub_partition[i]->m_l2_isempty()) return true;
+    if (!m_sub_partition[i]->L2_dram_queue_empty()) {
+      // printf("  [Mem Part %u]: dram_is_busy() -> true, sub partition %u L2_dram_queue is not empty.\n", 
+      //        m_id, i);
+      return true;
+    }
+    if (!m_sub_partition[i]->dram_L2_queue_empty()) {
+      // printf("  [Mem Part %u]: dram_is_busy() -> true, sub partition %u dram_L2_queue is not empty.\n",
+      //        m_id, i);
+      return true;
+    }
+    // 注意: m_l2_isempty() 可能过于敏感，因为它检查整个 L2 是否有条目，
+    // 而不仅仅是正在处理的请求。如果输出过多，可以考虑注释掉这一行。
+    if (!m_sub_partition[i]->m_l2_isempty()) {
+      // printf("  [Mem Part %u]: dram_is_busy() -> true, sub partition %u L2 cache (m_l2_isempty) is not empty.\n",
+      //        m_id, i);
+      return true;
+    }
   }
-  if (!m_dram->isempty()) return true;
-  if (!m_dram_latency_queue.empty()) return true;
+
+  // 检查 DRAM 控制器本身
+  if (!m_dram->isempty()) {
+    // printf("  [Mem Part %u]: dram_is_busy() -> true, DRAM controller (m_dram) is not empty.\n", m_id);
+    return true;
+  }
+
+  // 检查从 DRAM 返回但仍在延迟队列中的请求
+  if (!m_dram_latency_queue.empty()) {
+    // printf("  [Mem Part %u]: dram_is_busy() -> true, dram_latency_queue is not empty (size = %zu).\n",
+    //        m_id, m_dram_latency_queue.size());
+    return true;
+  }
+
+  // 所有相关组件都为空
   return false;
 }
 
@@ -335,6 +362,10 @@ void memory_partition_unit::dram_cycle() {
         mf_return->set_status(IN_PARTITION_DRAM_TO_L2_QUEUE,
                               m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
         m_arbitration_metadata.return_credit(dest_spid);
+
+        // printf("mem_fetch request %llx return from dram to sub partition %d\n",
+        //     mf_return->get_addr(), dest_spid);
+
         MEMPART_DPRINTF(
             "mem_fetch request %p return from dram to sub partition %d\n",
             mf_return, dest_spid);
@@ -482,6 +513,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
   if (!m_config->m_L2_config.disabled()) {
     if (m_L2cache->access_ready() && !m_L2_icnt_queue->full()) {
       mem_fetch *mf = m_L2cache->next_access();
+      // printf("mem_fetch request %llx finish\n", mf->get_addr());
       if (mf->get_access_type() !=
           L2_WR_ALLOC_R) {  // Don't pass write allocate read request back to
                             // upper level cache
@@ -520,7 +552,10 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
                        m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
         m_L2cache->fill(mf, m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
                                 m_memcpy_cycle_offset);
+        // printf("mem_fetch request %llx fill l2cache\n",
+        //        mf->get_addr());
         m_dram_L2_queue->pop();
+
       }
     } else if (!m_L2_icnt_queue->full()) {
       if (mf->is_write() && mf->get_type() == WRITE_ACK)
@@ -757,6 +792,19 @@ unsigned memory_sub_partition::flushL2() {
                                   m_memcpy_cycle_offset,events);
   }
   return 0;  // TODO: write the flushed data to the main memory
+}
+
+unsigned memory_sub_partition::readback(unsigned int partition_id) {
+  for (int i = 0; i < m_config->gpgpu_readback_addr_start.size(); i++) {
+
+  if (!m_config->m_L2_config.disabled()) {
+    std::list<cache_event> events;
+    return m_L2cache->recover_address_range(m_config->gpgpu_readback_addr_start[i],m_config->gpgpu_readback_addr_end[i],m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
+                                  m_memcpy_cycle_offset,events,partition_id);
+  }
+  }
+
+  return 0;  
 }
 
 unsigned memory_sub_partition::invalidateL2() {

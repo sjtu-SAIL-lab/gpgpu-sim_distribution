@@ -260,6 +260,11 @@ void dram_t::push(class mem_fetch *data) {
   data->set_status(IN_PARTITION_MC_INTERFACE_QUEUE,
                    m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
   mrqq->push(mrq);
+  // printf(
+  //        "DRAM %u: Push request addr=0x%llx bk=%u row=%u col=%u "
+  //        "is_write=%d data_size=%u\n",
+  //        id, (unsigned long long)data->get_addr(), mrq->bk, mrq->row, mrq->col,
+  //        data->get_is_write(), data->get_data_size());
 
   // stats...
   n_req += 1;
